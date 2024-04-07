@@ -19,7 +19,7 @@ python predict.py --carb False --input_files test/LSOIE_sentences.txt --output_f
 ```
 评估模型结构，请运行：
 ```shell
-bash carb/evaluate_all.sh result/LSOIE/result_7.carb datasets/gold/LSOIE.tsv
+bash carb/evaluate_all.sh result/LSOIE/result_7.carb datasets/gold/LSOIE_test_all.tsv
 ```
 值得注意的是，Triaffine-nested-ner-main结果中的最优epoch在整体结果中并不一定最优，根据观察，在最优epoch的后两轮epoch的结果得到整体最优的结果的可能性最大  
 ``predict_ablative.py``文件主要针对消融实验中的其他模型来构建，具体的模型设置在``DDP_train.py``有所说明，请读者自行查阅
