@@ -10,70 +10,58 @@ import models
 import dealdata
 from transformers import AutoConfig, AutoModel
 
+def deal_span(span_data):
+    temp=span_data.replace('\n','')
+    span=temp.split('|')
+    a1,a2,a1_score,a2_score=[],[],[],[]
+    if span==['']:
+        return a1,a2,a1_score,a2_score
+    for data in span:
+        temp_data=data.split(' ')
+        span_list=temp_data[0].split(',')
+        if temp_data[1]=='head,':
+            a1.append(span_list)
+            a1_score.append(float(temp_data[2]))
+        if temp_data[1]=='tail,':
+            a2.append(span_list)
+            a2_score.append(float(temp_data[2]))
+        if temp_data[1]=='both,':
+            a1.append(span_list)
+            a2.append(span_list)
+            a1_score.append(float(temp_data[2]))
+            a2_score.append(float(temp_data[2]))
+    return a1,a2,a1_score,a2_score
 
-#这个函数可以根据enti_model的结果生成rel的tags
-def deal_enti_result(model,testfeature,device):
-    result,preds,enti_span,mask,token_id = [],[],[],[],[]
-    dataloader = DataLoader(testfeature, batch_size=8, shuffle=False, collate_fn=utils.enti_collate_fn, drop_last=True)
-    for num,batch in enumerate(dataloader):
-        model.eval()
-        inputs = {'input_id': batch[0].to(device),'input_mask': batch[1].to(device),'enti_mask':batch[4].to(device),
-                  'enti_size':batch[3].to(device),'crf_mask': batch[5].to(device),}
-        with torch.no_grad():
-            output = model(**inputs)     #这个结果不应该是个b,e,label_num的tensor吗？
-            preds.extend(output[0])
-            mask.extend(batch[5])
-            enti_span.extend(batch[7])
-            token_id.extend(batch[8])
-    
-    
-    for i in range(len(preds)):              #i代表序号
-        y_pred = preds[i].argmax(dim=-1)  
-        new_a1,new_a2,a1_score,a2_score,tags,pair_score=[],[],[],[],[],[]    #score就是每个span的概率
-        for j in range(int(mask[i].sum())):              #序列
-            if y_pred[j]==1:
-                new_a1.append(enti_span[i][j])
-                a1_score.append(preds[i][j][1])
-            if y_pred[j]==2:
-                new_a2.append(enti_span[i][j])
-                a2_score.append(preds[i][j][2])
-            if y_pred[j]==3:
-                new_a1.append(enti_span[i][j])
-                a1_score.append(preds[i][j][3])
-                new_a2.append(enti_span[i][j])
-                a2_score.append(preds[i][j][3])
-       # if i<10:
-        #    print('a1',new_a1,'a2',new_a2)
-
+def deal_enti_result2(span_data,testfeature,CaRB=False):
+    result=[]
+    for i in range(len(span_data)):
+        tags,pair_score=[],[]
+        new_a1,new_a2,a1_score,a2_score=deal_span(span_data[i])
         if len(new_a1)>0 and len(new_a2)>0:
             for h in range(len(new_a1)):
                 for j in range(len(new_a2)):
-                    a1_list = list(range(new_a1[h][0],new_a1[h][1]))
-                    a2_list = list(range(new_a2[j][0],new_a2[j][1]))
+                    a1_list = list(range(int(new_a1[h][0]),int(new_a1[h][1])))
+                    a2_list = list(range(int(new_a2[j][0]),int(new_a2[j][1])))
                     temp_list = [f for f in a1_list if f in a2_list]
                     if len(temp_list)==0:
-                        temp_tags=torch.zeros((len(token_id[i])-2))    #-2是因为原来的token_map考虑了cls和sep
-                        temp_tags[new_a1[h][0]]=1
-                        temp_tags[new_a1[h][0]+1:new_a1[h][-1]]=2
-                        temp_tags[new_a2[j][0]]=3
-                        temp_tags[new_a2[j][0]+1:new_a2[j][-1]]=4
+                        temp_tags=torch.zeros((len(testfeature[i]['token_id'])-2))    #-2是因为原来的token_map考虑了cls和sep
+                        temp_tags[int(new_a1[h][0])]=1
+                        temp_tags[int(new_a1[h][0])+1:int(new_a1[h][-1])]=2
+                        temp_tags[int(new_a2[j][0])]=3
+                        temp_tags[int(new_a2[j][0])+1:int(new_a2[j][-1])]=4
                         tags.append(temp_tags)
-                        pair_score.append(float((a1_score[h]+a2_score[j])/2))  #这儿不对，咋干出一堆tags了      
-                        
-        if len(tags)==0:                                   #不可能让一个句子没有tags啊！所以如果计算是没有符合条件的tags，就把tags都当做0吧
-            temp_tags=torch.zeros((len(token_id[i])-2))    #-2是因为原来的token_map考虑了cls和sep
+                        pair_score.append((a1_score[h]+a2_score[j])/2)
+        if len(tags)==0:                                               #不可能让一个句子没有tags啊！所以如果计算是没有符合条件的tags，就把tags都当做0吧
+            temp_tags=torch.zeros((len(testfeature[i]['token_id'])-2))                #-2是因为原来的token_map考虑了cls和sep
             tags.append(temp_tags)
             pair_score.append(0)
         for num in range(len(tags)):
-            tags[num]=tags[num].tolist()  
-        if i%50==0:
-            print(i)
+            tags[num]=tags[num].tolist()
         feature={"sents":testfeature[i]['sents'],"input_id":testfeature[i]['input_id'],"sent_tags":tags,"pair_score":pair_score,
-                 "token_id":testfeature[i]['token_id'],"pos_id":testfeature[i]['pos_id']}
-        #因为关系模型就需要这么几个东西，所以别的就不要了，sent_id和sents是留着debug时做标识用的
+                     "token_id":testfeature[i]['token_id']}
         result.append(feature)
-        print('Enti result Done!')
     return result
+
 
 
 def findindex(templist,num):
@@ -103,7 +91,7 @@ def deal_tag(a_list,logit,pair_score,predict=False):
     return result
 
 
-def predict(rel_model,feature_data,device,pos,file_name):
+def predict(rel_model,feature_data,device,pos,file_name,carb=False):
     preds,rel_true,logits = [],[],[]
     dataloader = DataLoader(feature_data, batch_size=4, shuffle=False, collate_fn=utils.rel_collate_fn, drop_last=True)
     for batch in dataloader:
@@ -124,14 +112,17 @@ def predict(rel_model,feature_data,device,pos,file_name):
     out_f = open(file_name,'w')
     for num in range(len(preds)):           
         y_pred=preds[num]                    #seq_num,word_num
-        pair_score=temp_feature[num]['pair_score']
-        pred_dic=deal_tag(y_pred,logits[num],pair_score,predict=True)   #里面是a1,a2,pred,score的字典,其中前三个都是list,score是float
-
+        pair_score=feature_data[num]['pair_score']
+        pred_dic=deal_tag(y_pred,logits[num],pair_score[0],predict=True)   #里面是a1,a2,pred,score的字典,其中前三个都是list,score是float       
+        
         #sign = tempdata[num]['sent'] if json else tempdata[num].split(' ')
-        sents=' '.join(feature_data[num]['sents'])    #如果是json文件就这个
+        if carb:
+            sents=' '.join(feature_data[num]['sents'][:-3]) 
+        else:
+            sents=' '.join(feature_data[num]['sents'])    
         result=[]
         sign=feature_data[num]['sents']
-        for i in range(len(pred_dic)):
+        for i in range(len(pred_dic)):                 #pred_dic为空的时候这个循环压根不会跑，所以没问题
             a1=[sign[j] for j in pred_dic[i]['a1']]
             a2=[sign[j] for j in pred_dic[i]['a2']]
             rel=[sign[j] for j in pred_dic[i]['pred']]
@@ -149,41 +140,30 @@ def main(args):
         raise EnvironmentError("not find GPU device for training")
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     with open(args.input_files,'r') as f:
-        test_data=json.load(f)
-    test_data = dealdata.deal_conll(test_data) if args.data_type=='LSOIE' else test_data
-    if args.data_type=='LSOIE':
-        test_feature=dealdata.dealdata(test_data,8,40,train=False,sci=False,pos_file='data/pos/test.txt')
-    else:    
-        test_feature=dealdata.dealdata(test_data,8,40,train=False,sci=False,pos_file='data/pos/RE_test.txt')
-        
+        test_data=f.readlines()
+    test_feature=dealdata.deal_test(test_data,8,args.carb)
+    with open(args.span_result_file,'r') as f:
+        span_data=f.readlines()
+    temp_feature=deal_enti_result2(span_data,test_feature,CaRB=args.carb)
+    print('Enti Result Done!!!')
     config = AutoConfig.from_pretrained('microsoft/deberta-v3-base')
-    model = AutoModel.from_pretrained('microsoft/deberta-v3-base',config=config,)
-    if args.enti_done:
-        with open('data/enti_result.json','r') as f:
-            temp_feature=json.load(f)
-        print('Enti result Done!')
-    else:
-        enti_model = models.enti_bert_softmax(config,model,4)
-        enti_model.load_state_dict(torch.load('model_result/LSOIE/enti_model.pth'))
-        enti_model.to(device)
-        temp_feature=deal_enti_result(enti_model,test_feature,device)
-    
     model2 =AutoModel.from_pretrained('microsoft/deberta-v3-base',config=config,)
     rel_model=models.bert_bi_lstm_pure(config,model2,6,False)
-    rel_model.load_state_dict(torch.load(args.model_dic))
+    rel_model.load_state_dict(torch.load(args.rel_model_dic))
     rel_model.to(device)
-    lstm_output=predict(rel_model,temp_feature,device,args.pos,file_name=args.output_files)
+    lstm_output=predict(rel_model,temp_feature,device,args.pos,file_name=args.output_files,carb=args.carb)
+    
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--device', type=int, default=1) 
-    parser.add_argument('--model_dic', default='SOR-IE', type=str)   
+    parser.add_argument('--device', type=int, default=0) 
+    parser.add_argument('--rel_model_dic', default='SOR-IE', type=str)   
     parser.add_argument('--pos', type=bool, default=False)
     parser.add_argument('--input_files', type=str, default='rel')
     parser.add_argument('--output_files', type=str, default='LSOIE')
-    parser.add_argument('--data_type', type=str, default='LSOIE')
-    parser.add_argument('--enti_done', type=bool, default=False)
-    
+    parser.add_argument('--carb', type=bool, default=False)               #carb是false那就是LSOIE和RE的读取数据方式，不然就是CaRB的数据读取方式
+    parser.add_argument('--span_result_file', type=str)
+
     args = parser.parse_args()
 
     main(args)
