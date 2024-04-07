@@ -17,4 +17,5 @@ python -m torch.distributed.launch --nproc_per_node N --use_env DDP_train.py --e
 ```shell
 python predict.py --carb False --input_files test/LSOIE_sentences.txt --output_files result/LSOIE/result_7.carb --rel_model_dic model_result/LSOIE/lstm_pure.pth --span_result_file Triaffine-nested-ner-main/output/LSOIE/test_7_predict.txt 
 ```
-值得注意的是，Triaffine-nested-ner-main结果中的最优epoch在整体结果中并不一定最优，根据观察，在最优epoch的后两轮epoch的结果得到整体最优的结果的可能性最大
+值得注意的是，Triaffine-nested-ner-main结果中的最优epoch在整体结果中并不一定最优，根据观察，在最优epoch的后两轮epoch的结果得到整体最优的结果的可能性最大  
+``predict_ablative.py``文件主要针对消融实验中的其他模型来构建，具体的模型设置在``DDP_train.py``有所说明，请读者自行查阅
