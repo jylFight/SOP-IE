@@ -140,31 +140,3 @@ def rel_collate_fn(batch):
 
     output = (input_ids, input_mask, token_map, crf_mask, padding_result, seq_len ,padding_tags, rel_tags,pos_result)
     return output
-#这里说明一下，理论上这些全部要进入模型,其中token_map和seq_len和rel_tags(里面是tensor)是list，其他都是tensor
-#至少这部分数据里没有长度超过512的，所以先不管这个事！
-def enti_collate_fn(batch):
-    max_len = max([len(f["input_id"]) for f in batch])          
-    max_enti = max([len(f['enti_size']) for f in batch])         #一个是input_id需要补齐，另一个是enti数也需要补齐
-    input_ids = [f["input_id"] + [0.0] * (max_len - len(f["input_id"])) for f in batch]          #b,l
-    #pos_ids = [f["pos_list"]+[0] * (max_len - len(f["input_id"])) for f in batch]                #b,l
-    input_mask = [[1.0] * len(f["input_id"]) + [0.0] * (max_len - len(f["input_id"])) for f in batch]
-    enti_tags = [f["enti_tags"] + [0.0] * (max_enti - len(f["enti_tags"])) for f in batch]       #b,e
-    enti_size = [f["enti_size"] + [0.0] * (max_enti - len(f["enti_size"])) for f in batch]       #b,e
-    new_enti_mask = torch.zeros((len(batch)),max_enti,max_len)                                   #b,e,l
-    for i in range(len(batch)):
-        new_enti_mask[i,0:len(batch[i]['enti_mask']),0:len(batch[i]['enti_mask'][0])]=batch[i]['enti_mask']
-    #还得搞个crf时的mask，维度是b,e，而且还得考虑CLS和SEP啊！
-    crf_mask = [[1.0] * len(f["enti_size"]) + [0.0] * (max_enti - len(f["enti_size"])) for f in batch]
-    token_len = [len(f['token_id']) for f in batch]
-    
-    input_ids = torch.tensor(input_ids, dtype=torch.long)
-    input_mask = torch.tensor(input_mask, dtype=torch.float)
-    crf_mask = torch.tensor(crf_mask, dtype=torch.float)
-    enti_tags = torch.tensor(enti_tags, dtype=torch.long)
-    enti_size=  torch.tensor(enti_size, dtype=torch.long)
-    #下面这俩是模型用不上，但是根据模型结果构造负关系时特别好用，所以就加上了
-    enti_span = [f['enti_span'] for f in batch]
-    token_map = [f['token_id'] for f in batch]
-    
-    output = (input_ids, input_mask, enti_tags, enti_size, new_enti_mask, crf_mask, token_len, enti_span,token_map) 
-    return output
